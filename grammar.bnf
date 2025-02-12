@@ -1,0 +1,6 @@
+<regex> ::= <term> ("|" <term> | "&" <term>)*
+<term> ::= "~"? <factor>*
+<factor> ::= <atom> ("*" | "+" | "?")?
+<atom> ::= "(" <regex> ")" | "^"? ("." | <symbol> ("-" <symbol>)?)
+<symbol> ::= "\\" <metachar> | (? any character except <metachar> ?)
+<metachar> ::= "\\" | "." | "-" | "^" | "$" | "*" | "+" | "?" | "(" | ")" | "|" | "&" | "~"

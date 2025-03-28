@@ -18,13 +18,13 @@ struct regex {
     TYPE_RANGE,  // a-b
     TYPE_NRANGE, // ^a-b
   } type;
-  // no need to use a union because alignment
+  // no need to use a union because padding
   char lower, upper; // for ranges and repeats. both bounds inclusive
   struct regex *lhs, *rhs;
 };
 
 struct regex *regex_alloc(struct regex fields) {
-  struct regex *regex = malloc(sizeof(struct regex));
+  struct regex *regex = malloc(sizeof(*regex));
   return *regex = fields, regex;
 }
 

@@ -128,6 +128,9 @@ int main(void) {
   test("5-\\?+", "56789:;<=>?", true);
   test("\\(-\\++", "()*+", true);
   test("\t-\r+", "\t\n\v\f\r", true);
+  test("~", "", false);
+  test("~", "a", true);
+  test("~", "aa", true);
   test("~0*", "", false);
   test("~0*", "0", false);
   test("~0*", "00", false);

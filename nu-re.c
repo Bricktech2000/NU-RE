@@ -102,20 +102,25 @@ static struct regex *parse_factor(char **regex) {
 
 static struct regex *parse_term(char **regex) {
   bool complement = **regex == '~' && ++*regex;
-  struct regex *term = regex_alloc(TYPE_REPEAT, .lower = 0, .upper = 0);
 
   // hacky lookahead for better diagnostics
-  while (!strchr(")|&", **regex)) {
-    struct regex *factor = parse_factor(regex);
-    if (factor == NULL)
-      return regex_free(term), NULL;
-    term = regex_alloc(TYPE_CONCAT, .lhs = term, .rhs = factor);
+  if (strchr(")|&", **regex)) {
+    struct regex *term = regex_alloc(TYPE_REPEAT, .lower = 0, .upper = 0);
+    return complement ? regex_alloc(TYPE_COMPL, .lhs = term) : term;
   }
 
-  if (complement)
-    term = regex_alloc(TYPE_COMPL, .lhs = term);
+  struct regex *term = parse_factor(regex);
+  if (term == NULL)
+    return NULL;
+  if (**regex == '~')
+    return regex_free(term), NULL;
 
-  return term;
+  struct regex *cat = parse_term(regex);
+  if (cat == NULL)
+    return regex_free(term), NULL;
+  term = regex_alloc(TYPE_CONCAT, .lhs = term, .rhs = cat);
+
+  return complement ? regex_alloc(TYPE_COMPL, .lhs = term) : term;
 }
 
 static struct regex *parse_regex(char **regex) {

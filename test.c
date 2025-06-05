@@ -87,6 +87,22 @@ int main(void) {
   test("(a|b)?", "", true);
   test("(a|b)?", "a", true);
   test("(a|b)?", "b", true);
+  test("x*|", "xx", true);
+  test("x*|", "", true);
+  test("x+|", "xx", true);
+  test("x+|", "", true);
+  test("x?|", "x", true);
+  test("x?|", "", true);
+  test("x*y*", "yx", false);
+  test("x+y+", "yx", false);
+  test("x?y?", "yx", false);
+  test("x+y*", "xyx", false);
+  test("x*y+", "yxy", false);
+  test("x*|y*", "xy", false);
+  test("x+|y+", "xy", false);
+  test("x?|y?", "xy", false);
+  test("x+|y*", "xy", false);
+  test("x*|y+", "xy", false);
 
   // parse errors (directly from CPS-RE)
   test("abc)", NULL, false);

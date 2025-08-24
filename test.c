@@ -7,32 +7,33 @@ void dump(char *str, size_t len) {
     printf(isprint(*str) && *str != '\\' ? "%c" : "\\x%02hhx", *str);
 }
 
-void test(char *regex, char *input, bool matches) {
-  // run `regex` against `input` and ensure it matches if and only if `matches`.
-  // also ensure that `regex` fails to parse if and only if `input == NULL`
+void test(char *pattern, char *input, bool matches) {
+  // run regular expression `pattern` against `input` and ensure it matches
+  // if and only if `matches`. also ensure that `pattern` fails to parse if
+  // and only if `input == NULL`
 
-  char *loc = regex;
-  struct regex *regex_ = nure_parse(&loc);
-  if ((regex_ == NULL) != (input == NULL))
-    printf("test failed: /"), dump(regex, -1), printf("/ parse\n");
-  // if (regex_ == NULL) {
-  //   printf("note: /"), dump(regex, -1), printf("/ ");
+  char *loc = pattern;
+  struct regex *regex = nure_parse(&loc);
+  if ((regex == NULL) != (input == NULL))
+    printf("test failed: /"), dump(pattern, -1), printf("/ parse\n");
+  // if (regex == NULL) {
+  //   printf("note: /"), dump(pattern, -1), printf("/ ");
   //   printf("parse error near '"), dump(loc, 16), printf("'\n");
   // }
 
-  if (regex_ == NULL)
+  if (regex == NULL)
     return;
   if (input == NULL) {
-    regex_free(regex_);
+    regex_free(regex);
     return;
   }
 
-  if (nure_matches(&regex_, input) != matches) {
-    printf("test failed: /"), dump(regex, -1), printf("/ ");
+  if (nure_matches(&regex, input) != matches) {
+    printf("test failed: /"), dump(pattern, -1), printf("/ ");
     printf("against '"), dump(input, -1), printf("'\n");
   }
 
-  regex_free(regex_);
+  regex_free(regex);
 }
 
 int main(void) {
@@ -50,10 +51,10 @@ int main(void) {
   test("a+b|c", "abbbbc", false);
   test("ab+|c", "abbbbc", false);
   test("", "", true);
-  test("^.", "", false);
-  test("^.*", "", true);
-  test("^.+", "", false);
-  test("^.?", "", true);
+  test("~.", "", false);
+  test("~.*", "", true);
+  test("~.+", "", false);
+  test("~.?", "", true);
   test("()", "", true);
   test("()*", "", true);
   test("()+", "", true);
@@ -63,7 +64,6 @@ int main(void) {
   test("()", "a", false);
   test("a()", "a", true);
   test("()a", "a", true);
-  test(" ", " ", true);
   test("", "\n", false);
   test("\n", "\n", true);
   test(".", "\n", true);
@@ -109,29 +109,28 @@ int main(void) {
   test("(abc", NULL, false);
   test("+a", NULL, false);
   test("a|*", NULL, false);
+  test("\\", NULL, false);
   test("\\x0", NULL, false);
-  test("\\zzz", NULL, false);
+  test("\\yyy", NULL, false);
+  test("\\a", NULL, false);
   test("\\b", NULL, false);
-  test("\\t", NULL, false);
-  test("^^a", NULL, false);
+  test("~~a", NULL, false);
   test("a**", NULL, false);
   test("a+*", NULL, false);
   test("a?*", NULL, false);
 
   // nonstandard features (directly from CPS-RE)
-  test("^a", "z", true);
-  test("^a", "a", false);
-  test("^\n", "\r", true);
-  test("^\n", "\n", false);
-  test("^.", "\n", false);
-  test("^.", "a", false);
-  test("^a-z*", "1A!2$B", true);
-  test("^a-z*", "1aA", false);
+  test("~a", "z", true);
+  test("~a", "a", false);
+  test("~\n", "\r", true);
+  test("~\n", "\n", false);
+  test("~.", "\n", false);
+  test("~.", "a", false);
+  test("~a-z*", "1A!2$B", true);
+  test("~a-z*", "1aA", false);
   test("a-z*", "abc", true);
-  test("\\^", "^", true);
-  test("^\\^", "^", false);
-  test(".", " ", true);
-  test("^.", " ", false);
+  test("\\~", "~", true);
+  test("~\\~", "~", false);
   test("9-0*", "abc", true);
   test("9-0*", "18", false);
   test("9-0*", "09", true);
@@ -144,45 +143,99 @@ int main(void) {
   test("5-\\?+", "56789:;<=>?", true);
   test("\\(-\\++", "()*+", true);
   test("\t-\r+", "\t\n\v\f\r", true);
-  test("~", "", false);
-  test("~", "a", true);
-  test("~", "aa", true);
-  test("~0*", "", false);
-  test("~0*", "0", false);
-  test("~0*", "00", false);
-  test("~0*", "001", true);
+  test("!", "", false);
+  test("!", "a", true);
+  test("!", "aa", true);
+  test("!0*", "", false);
+  test("!0*", "0", false);
+  test("!0*", "00", false);
+  test("!0*", "001", true);
   test("ab&cd", "", false);
   test("ab&cd", "ab", false);
   test("ab&cd", "cd", false);
-  test(".*a.*&...", "ab", false);
-  test(".*a.*&...", "abc", true);
-  test(".*a.*&...", "bcd", false);
+  test("...&%a%", "ab", false);
+  test("...&%a%", "abc", true);
+  test("...&%a%", "bcd", false);
   test("a&b|c", "a", false);
   test("a&b|c", "b", false);
   test("a&b|c", "c", false);
   test("a|b&c", "a", true);
   test("a|b&c", "b", false);
   test("a|b&c", "c", false);
-  test("(0-9|a-z|A-Z|_)+&~0-9+", "", false);
-  test("(0-9|a-z|A-Z|_)+&~0-9+", "abc", true);
-  test("(0-9|a-z|A-Z|_)+&~0-9+", "abc123", true);
-  test("(0-9|a-z|A-Z|_)+&~0-9+", "1a2b3c", true);
-  test("(0-9|a-z|A-Z|_)+&~0-9+", "123", false);
-  test("0x(~(0-9|a-f)+)", "0yz", false);
-  test("0x(~(0-9|a-f)+)", "0x12", false);
-  test("0x(~(0-9|a-f)+)", "0x", true);
-  test("0x(~(0-9|a-f)+)", "0xy", true);
-  test("0x(~(0-9|a-f)+)", "0xyz", true);
-  test("b(~a*)", "", false);
-  test("b(~a*)", "b", false);
-  test("b(~a*)", "ba", false);
-  test("b(~a*)", "bbaa", true);
+  test("(0-9|a-z|A-Z)+&!0-9+", "", false);
+  test("(0-9|a-z|A-Z)+&!0-9+", "abc", true);
+  test("(0-9|a-z|A-Z)+&!0-9+", "abc123", true);
+  test("(0-9|a-z|A-Z)+&!0-9+", "1a2b3c", true);
+  test("(0-9|a-z|A-Z)+&!0-9+", "123", false);
+  test("0x(!(0-9|a-f|A-F)+)", "0yz", false);
+  test("0x(!(0-9|a-f|A-F)+)", "0x12", false);
+  test("0x(!(0-9|a-f|A-F)+)", "0x", true);
+  test("0x(!(0-9|a-f|A-F)+)", "0xy", true);
+  test("0x(!(0-9|a-f|A-F)+)", "0xyz", true);
+  test("0x(%(~0-9&~a-f&~A-F)%|)", "0yz", false);
+  test("0x(%(~0-9&~a-f&~A-F)%|)", "0x12", false);
+  test("0x(%(~0-9&~a-f&~A-F)%|)", "0x", true);
+  test("0x(%(~0-9&~a-f&~A-F)%|)", "0xy", true);
+  test("0x(%(~0-9&~a-f&~A-F)%|)", "0xyz", true);
+  test("!(!)(!a)", "", true);
+  test("!(!)(!a)", "a", false);
+  test("!(!)(!a)", "ab", false);
+  test("!(!a)(!)", "", true);
+  test("!(!a)(!)", "a", false);
+  test("!(!a)(!)", "ab", false);
+  test("!(!)(!)", "", true);
+  test("!(!)(!)", "a", true);
+  test("!(!)(!)", "ab", false);
+  test("!(!)/(!0*)", "/2", true);
+  test("!(!)/(!0*)", "1/0", true);
+  test("!(!)/(!0*)", "1/2", false);
+  test("!(!)/(!0*)", "1/", true);
+  test("!(!)/(!0*)", "2/1/0", false);
+  test("!(!)/(!0*)", "1/00", true);
+  test("!(!)/(!0*)", "0/2", false);
+  test("!(!)/(!0*)", "a/b", false);
+  test("!(!)/(!0*)", "a-b", true);
+  test("!(!a-z*0-9*)?", "", false);
+  test("!(!a-z*0-9*)?", "b", true);
+  test("!(!a-z*0-9*)?", "2", true);
+  test("!(!a-z*0-9*)?", "c3", true);
+  test("!(!a-z*0-9*)?", "4d", false);
+  test("!(!a-z*0-9*)?", "ee56", true);
+  test("!(!a-z*0-9*)?", "f6g", false);
+  test("b(!a*)", "", false);
+  test("b(!a*)", "b", false);
+  test("b(!a*)", "ba", false);
+  test("b(!a*)", "bbaa", true);
+  test("a*(!)", "", false);
+  test("a*(!)", "a", true);
+  test("a*(!)", "bc", true);
+  test("(!)*", "", true);
+  test("(!)*", "a", true);
+  test("(!)*", "ab", true);
+  test("(!)+", "", false);
+  test("(!)+", "a", true);
+  test("(!)+", "ab", true);
+  test("(!)?", "", true);
+  test("(!)?", "a", true);
+  test("(!)?", "ab", true);
+  test("(a*)*", "a", true);
+  test("(a*)+", "a", true);
+  test("(a*)?", "a", true);
+  test("(a+)*", "a", true);
+  test("(a+)+", "a", true);
+  test("(a+)?", "a", true);
+  test("(a?)*", "a", true);
+  test("(a?)+", "a", true);
+  test("(a?)?", "a", true);
   test("-", NULL, false);
+  test("--", NULL, false);
+  test("---", NULL, false);
   test("a-", NULL, false);
   test(".-a", NULL, false);
   test("a-.", NULL, false);
-  test("~~a", NULL, false);
-  test("a~b", NULL, false);
+  test("a-\\", NULL, false);
+  test("!!a", NULL, false);
+  test("a!!b", NULL, false);
 
   // realistic regexes (directly from CPS-RE)
 #define HEX_RGB "#(...(...)?&(0-9|a-f|A-F)*)"
@@ -191,8 +244,8 @@ int main(void) {
   test(HEX_RGB, "#00ff", false);
   test(HEX_RGB, "#abcdef", true);
   test(HEX_RGB, "#abcdeff", false);
-#define BLOCK_COMMENT "/\\*(~.*\\*/.*)\\*/"
-#define LINE_COMMENT "//^\n*\n"
+#define BLOCK_COMMENT "/\\*(!%\\*/%)\\*/"
+#define LINE_COMMENT "//~\n*\n"
 #define COMMENT BLOCK_COMMENT "|" LINE_COMMENT
   test(COMMENT, "// */\n", true);
   test(COMMENT, "// //\n", true);
@@ -216,7 +269,8 @@ int main(void) {
 #define S "\\-*" FIELD_WIDTH PRECISION "l?s"
 #define P "\\-*" FIELD_WIDTH "p"
 #define N FIELD_WIDTH "(hh|ll|h|l|j|z|t)?n"
-#define CONV_SPEC "%(" DI "|" U "|" OX "|" FEGA "|" C "|" S "|" P "|" N "|%)"
+#define CONV_SPEC                                                              \
+  "\\%(" DI "|" U "|" OX "|" FEGA "|" C "|" S "|" P "|" N "|\\%)"
   test(CONV_SPEC, "%", false);
   test(CONV_SPEC, "%*", false);
   test(CONV_SPEC, "%%", true);
@@ -227,6 +281,8 @@ int main(void) {
   test(CONV_SPEC, "%5p", true);
   test(CONV_SPEC, "d", false);
   test(CONV_SPEC, "%d", true);
+  test(CONV_SPEC, "%*d", true);
+  test(CONV_SPEC, "%**d", false);
   test(CONV_SPEC, "%.16s", true);
   test(CONV_SPEC, "% 5.3f", true);
   test(CONV_SPEC, "%*32.4g", false);
@@ -248,7 +304,7 @@ int main(void) {
   test(CONV_SPEC, "%0-++ 0i", true);
   test(CONV_SPEC, "%30c", true);
   test(CONV_SPEC, "%03c", false);
-#define PRINTF_FMT "(^%|" CONV_SPEC ")*"
+#define PRINTF_FMT "(~\\%|" CONV_SPEC ")*"
   test(PRINTF_FMT, "%", false);
   test(PRINTF_FMT, "%*", false);
   test(PRINTF_FMT, "%%", true);
@@ -264,10 +320,9 @@ int main(void) {
   "float|for|goto|if|inline|int|long|register|restrict|return|short|signed|"   \
   "sizeof|static|struct|switch|typedef|union|unsigned|void|volatile|while|"    \
   "_Bool|_Complex|_Imaginary)"
-#define HEX_QUAD "(....&(0-9|a-f|A-F)*)"
 #define IDENTIFIER                                                             \
-  "(0-9|a-z|A-Z|_|\\\\u" HEX_QUAD "|\\\\U" HEX_QUAD HEX_QUAD ")+"              \
-  "&~0-9.*&~" KEYWORD
+  "(_|0-9|a-z|A-Z|\\\\u(....&(0-9|a-f|A-F)*)|\\\\U(........&(0-9|a-f|A-F)*))+" \
+  "&!0-9%&!" KEYWORD
   test(IDENTIFIER, "", false);
   test(IDENTIFIER, "_", true);
   test(IDENTIFIER, "_foo", true);
@@ -287,9 +342,9 @@ int main(void) {
   test(IDENTIFIER, "\\U12345678", true);
   test(IDENTIFIER, "\\U1234567y", false);
   test(IDENTIFIER, "\\U12345678y", true);
-#define HEX_QUAD "(....&(0-9|a-f|A-F)*)"
 #define JSON_STR                                                               \
-  "\"( -!|#-[|]-\xff|\\\\(\"|\\\\|/|b|f|n|r|t)|\\\\u" HEX_QUAD ")*\""
+  "\"(( -\xff&~\"&~\\\\)|\\\\(\"|\\\\|/|b|f|n|r|t)|"                           \
+  "\\\\u(....&(0-9|a-f|A-F)*))*\""
   test(JSON_STR, "foo", false);
   test(JSON_STR, "\"foo", false);
   test(JSON_STR, "foo \"bar\"", false);
@@ -343,7 +398,7 @@ int main(void) {
   test(JSON_PRIM, "\"1a\\n\"", true);
   test(JSON_PRIM, "\"1a\\n\" ", false);
 #define UTF8_CHAR                                                              \
-  "(\x01-\x7f|(\xc2-\xdf|\xe0\xa0-\xbf|\xed\x80-\x9f|(\xe1-\xec|\xee|\xef|"    \
+  "(~\x80-\xff|(\xc2-\xdf|\xe0\xa0-\xbf|\xed\x80-\x9f|(\xe1-\xec|\xee-\xef|"   \
   "\xf0\x90-\xbf|\xf4\x80-\x8f|\xf1-\xf3\x80-\xbf)\x80-\xbf)\x80-\xbf)"
 #define UTF8_CHARS UTF8_CHAR "*"
   test(UTF8_CHAR, "ab", false);
@@ -373,4 +428,74 @@ int main(void) {
   test(UTF8_CHARS, "\xc2\x7f", false);     // bad tail
   test(UTF8_CHARS, "\xe2\x28\xa1", false); // bad tail
   test(UTF8_CHARS, "\x80x/", false);
+#define FA_PATH(TRANS) "A-Z(0-1A-Z)*&!%(A-Z0-1A-Z&!(" TRANS "))%"
+#define ACCEPT FA_PATH("A1B|A0D|D0D|D1D|B1B|C1B|B0C|C0C") "&A%%C"
+#define REJECT FA_PATH("A1B|A0D|D0D|D1D|B1B|C1B|B0C|C0C") "&A%~C"
+  test(ACCEPT, "A0D", false);
+  test(ACCEPT, "A0C", false);
+  test(ACCEPT, "A5B", false);
+  test(ACCEPT, "A1B", false);
+  test(ACCEPT, "A1B0C", true);
+  test(ACCEPT, "A1B1B0C0C", true);
+  test(ACCEPT, "B1B0C", false);
+  test(REJECT, "A0D", true);
+  test(REJECT, "A0C", false);
+  test(REJECT, "A5B", false);
+  test(REJECT, "A1B", true);
+  test(REJECT, "A1B0C", false);
+  test(REJECT, "A1B1B0C0C", false);
+  test(REJECT, "B1B0C", false);
+#define YEAR "(0-90-90-90-9|(0|5-9)0-9)"
+#define MONTH "(0?1-9|10-2)"
+#define UNAMBIGUOUS                                                            \
+  "(" YEAR "/" MONTH "|" MONTH "/" YEAR ")&!" YEAR "/" MONTH "|!" MONTH "/" YEAR
+  test(UNAMBIGUOUS, "3/98", true);
+  test(UNAMBIGUOUS, "05/98", true);
+  test(UNAMBIGUOUS, "10/98", true);
+  test(UNAMBIGUOUS, "98/12", true);
+  test(UNAMBIGUOUS, "98/13", false);
+  test(UNAMBIGUOUS, "98/17", false);
+  test(UNAMBIGUOUS, "07/55", true);
+  test(UNAMBIGUOUS, "07/14", false);
+  test(UNAMBIGUOUS, "07/1914", true);
+  test(UNAMBIGUOUS, "07/2014", true);
+  test(UNAMBIGUOUS, "3/2", false);
+  test(UNAMBIGUOUS, "3/02", true);
+  test(UNAMBIGUOUS, "03/2", true);
+  test(UNAMBIGUOUS, "03/02", false);
+  test(UNAMBIGUOUS, "03/2002", true);
+  test(UNAMBIGUOUS, "2003/02", true);
+  test(UNAMBIGUOUS, "11/12", false);
+  test(UNAMBIGUOUS, "2011/12", true);
+  test(UNAMBIGUOUS, "11/2012", true);
+#define DIV_BY_3                                                               \
+  "(0|3|6|9|(1|4|7)(0|3|6|9)*(2|5|8)|(2|5|8|(1|4|7)(0|3|6|9)*(1|4|7))"         \
+  "(0|3|6|9|(2|5|8)(0|3|6|9)*(1|4|7))*(1|4|7|(2|5|8)(0|3|6|9)*(2|5|8)))*"
+  test(DIV_BY_3, "", true);
+  test(DIV_BY_3, "3", true);
+  test(DIV_BY_3, "4818", true);
+  test(DIV_BY_3, "756", true);
+  test(DIV_BY_3, "146", false);
+  test(DIV_BY_3, "446127512", false);
+  test(DIV_BY_3, "24641410726", false);
+  test(DIV_BY_3, "6012627460", false);
+  test(DIV_BY_3, "91564250", false);
+  test(DIV_BY_3, "2308562", false);
+  test(DIV_BY_3, "76", false);
+  test(DIV_BY_3, "2222530", false);
+  test(DIV_BY_3, "18", true);
+  test(DIV_BY_3, "10361335", false);
+  test(DIV_BY_3, "1374", true);
+  test(DIV_BY_3, "70", false);
+  test(DIV_BY_3, "26054309489", false);
+  test(DIV_BY_3, "124859573097", true);
+#define PWD_REQ "........+& -\\~*&%a-z%&%A-Z%&%0-9%&%(\\!-/|:-@|[-`|{-\\~)%"
+  test(PWD_REQ, "pa$$W0rd", true);
+  test(PWD_REQ, "Password1!", true);
+  test(PWD_REQ, "Password1", false);
+  test(PWD_REQ, "password1!", false);
+  test(PWD_REQ, "PASSWORD1!", false);
+  test(PWD_REQ, "Password!", false);
+  test(PWD_REQ, "Pass1!", false);
+  test(PWD_REQ, "Password\t1!", false);
 }

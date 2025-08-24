@@ -1,6 +1,6 @@
-<regex> ::= (<term> "|" | <term> "&")* <term>
-<term> ::= "~"? <factor>*
+<regex> ::= "!"? <term> (("|" | "&") <regex>)?
+<term> ::= <factor>*
 <factor> ::= <atom> ("*" | "+" | "?")?
-<atom> ::= "(" <regex> ")" | "^"? ("." | <symbol> ("-" <symbol>)?)
+<atom> ::= "%" | "(" <regex> ")" | "~"? ("." | <symbol> ("-" <symbol>)?)
 <symbol> ::= "\\" <metachar> | (? any character except <metachar> ?)
-<metachar> ::= "\\" | "." | "-" | "^" | "$" | "*" | "+" | "?" | "(" | ")" | "|" | "&" | "~"
+<metachar> ::= (? one of "\-.~%*+?|&!()" ?)

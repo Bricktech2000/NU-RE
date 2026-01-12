@@ -18,7 +18,8 @@ void test(char *pattern, char *input, bool matches) {
     printf("test failed: /"), dump(pattern, -1), printf("/ parse\n");
   // if (regex == NULL) {
   //   printf("note: /"), dump(pattern, -1), printf("/ ");
-  //   printf("parse error near '"), dump(loc, 16), printf("'\n");
+  //   printf("parse error at pattern[%zu] ", loc - pattern);
+  //   printf("near '"), dump(loc, 16), printf("'\n");
   // }
 
   if (regex == NULL)

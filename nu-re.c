@@ -96,6 +96,8 @@ hoist_rhs:;
 
 #define regex_alloc(...) regex_alloc((struct regex){__VA_ARGS__})
 
+// keep in sync with grammar.bnf
+
 static char *parse_symbol(char **pattern) {
   if (!strchr(METACHARS, **pattern))
     return (*pattern)++;

@@ -1,3 +1,4 @@
+; keep in sync with nu-re.c
 <regex> ::= "!"? <term> (("|" | "&") <regex>)?
 <term> ::= <factor>*
 <factor> ::= <atom> ("*" | "+" | "?")?

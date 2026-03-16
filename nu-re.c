@@ -32,7 +32,7 @@ struct regex {
   (REGEX->type == TYPE_COMPL && REGEX_ISEMPTY(REGEX->lhs))
 
 struct regex *regex_alloc(struct regex fields) {
-  struct regex *regex = malloc(sizeof(*regex));
+  struct regex *regex = malloc(sizeof *regex);
   return *regex = fields, regex;
 }
 

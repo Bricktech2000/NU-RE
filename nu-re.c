@@ -8,7 +8,6 @@
 struct regex {
   enum regex_type {
     TYPE_ALT,    // r|s
-    TYPE_INT,    // r&s
     TYPE_COMPL,  // !r
     TYPE_CONCAT, // rs
     TYPE_REPEAT, // r* r+ r?
@@ -28,8 +27,6 @@ struct regex {
 #define REGEX_ISEMPTY(REGEX)                                                   \
   (REGEX->type == TYPE_NRANGE && REGEX->lower == CHAR_MIN &&                   \
    REGEX->upper == CHAR_MAX)
-#define REGEX_ISUNIV(REGEX)                                                    \
-  (REGEX->type == TYPE_COMPL && REGEX_ISEMPTY(REGEX->lhs))
 
 struct regex *regex_alloc(struct regex fields) {
   struct regex *regex = malloc(sizeof *regex);
@@ -60,11 +57,9 @@ static void regex_simplify(struct regex **regex) {
     if (REGEX_ISEMPTY((*regex)->rhs))
       goto hoist_lhs; // r|[] |- r
     break;
-  case TYPE_INT:
-    if (REGEX_ISEMPTY((*regex)->lhs))
-      goto hoist_lhs; // []&r |- []
-    if (REGEX_ISEMPTY((*regex)->rhs))
-      goto hoist_rhs; // r&[] |- []
+  case TYPE_COMPL:
+    if ((*regex)->lhs->type == TYPE_COMPL)
+      goto hoist_lhs_lhs; // !!r |- r
     break;
   case TYPE_CONCAT:
     if (REGEX_ISEMPTY((*regex)->lhs))
@@ -82,6 +77,11 @@ static void regex_simplify(struct regex **regex) {
   default:
     break;
   }
+
+  return;
+hoist_lhs_lhs:;
+  struct regex *lhs_lhs = (*regex)->lhs->lhs;
+  (*regex)->lhs->lhs = NULL, regex_free(*regex), *regex = lhs_lhs;
 
   return;
 hoist_lhs:;
@@ -125,9 +125,9 @@ static struct regex *parse_atom(char **pattern) {
     return regex_free(sub), NULL;
   }
 
-  bool complement = **pattern == '~' && ++*pattern;
+  bool compl = **pattern == '~' && ++*pattern;
   if (**pattern == '.' && ++*pattern)
-    return regex_alloc(TYPE_RANGE + complement, CHAR_MIN, CHAR_MAX);
+    return regex_alloc(TYPE_RANGE + compl, CHAR_MIN, CHAR_MAX);
 
   char *lower = parse_symbol(pattern), *upper = lower;
   if (lower == NULL)
@@ -138,7 +138,7 @@ static struct regex *parse_atom(char **pattern) {
       return NULL;
 
   bool wraparound = *lower > *upper;
-  return regex_alloc(TYPE_RANGE + (wraparound ^ complement),
+  return regex_alloc(TYPE_RANGE + (wraparound ^ compl ),
                      .lower = wraparound ? *upper + 1 : *lower,
                      .upper = wraparound ? *lower - 1 : *upper);
 }
@@ -175,13 +175,13 @@ static struct regex *parse_term(char **pattern) {
 }
 
 static struct regex *parse_regex(char **pattern) {
-  bool complement = **pattern == '!' && ++*pattern;
+  bool compl = **pattern == '!' && ++*pattern;
 
   struct regex *term = parse_term(pattern);
   if (term == NULL)
     return NULL;
 
-  term = complement ? regex_alloc(TYPE_COMPL, .lhs = term) : term;
+  term = compl ? regex_alloc(TYPE_COMPL, .lhs = term) : term;
 
   if (**pattern == '|' || **pattern == '&') {
     bool intersect = *(*pattern)++ == '&';
@@ -189,10 +189,14 @@ static struct regex *parse_regex(char **pattern) {
     if (alt == NULL)
       return regex_free(term), NULL;
 
-    struct regex *regex =
-        regex_alloc(TYPE_ALT + intersect, .lhs = term, .rhs = alt);
-    regex_simplify(&regex);
-    return regex;
+    if (!intersect)
+      return regex_alloc(TYPE_ALT, .lhs = term, .rhs = alt);
+
+    term = regex_alloc(TYPE_COMPL, .lhs = term);
+    alt = regex_alloc(TYPE_COMPL, .lhs = alt);
+    regex_simplify(&term), regex_simplify(&alt);
+    return regex_alloc(TYPE_COMPL,
+                       .lhs = regex_alloc(TYPE_ALT, .lhs = term, .rhs = alt));
   }
 
   return term;
@@ -215,7 +219,6 @@ bool nure_nullable(struct regex *regex) {
   switch (regex->type) {
   case TYPE_ALT:
     return nure_nullable(regex->lhs) || nure_nullable(regex->rhs);
-  case TYPE_INT:
   case TYPE_CONCAT:
     return nure_nullable(regex->lhs) && nure_nullable(regex->rhs);
   case TYPE_COMPL:
@@ -237,7 +240,6 @@ void nure_differentiate(struct regex **regex, char chr) {
 
   switch ((*regex)->type) {
   case TYPE_ALT:
-  case TYPE_INT:
     nure_differentiate(&(*regex)->rhs, chr);
   case TYPE_COMPL:
     nure_differentiate(&(*regex)->lhs, chr);
@@ -271,8 +273,8 @@ void nure_differentiate(struct regex **regex, char chr) {
     break;
   case TYPE_RANGE:
   case TYPE_NRANGE:;
-    bool complement = (*regex)->type == TYPE_NRANGE;
-    if (((*regex)->lower <= chr && chr <= (*regex)->upper) ^ complement)
+    bool compl = (*regex)->type == TYPE_NRANGE;
+    if (((*regex)->lower <= chr && chr <= (*regex)->upper) ^ compl )
       **regex = REGEX_EPS;
     else
       **regex = REGEX_EMPTY;

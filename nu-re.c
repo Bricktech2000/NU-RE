@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+// keep in sync with PNLC example
+
 #define METACHARS "\\-.~%*+?|&!()"
 
 struct regex {
@@ -10,23 +12,23 @@ struct regex {
     TYPE_ALT,    // r|s
     TYPE_COMPL,  // !r
     TYPE_CONCAT, // rs
-    TYPE_REPEAT, // r* r+ r?
+    TYPE_STAR,   // r*
     TYPE_RANGE,  // a-b
     TYPE_NRANGE, // ~a-b
   } type;
   // no need to use a union because padding
-  char lower, upper; // for ranges and repeats. both bounds inclusive
-  // `lhs` must be `NULL` for `TYPE_REPEAT` with `upper = lower = 0`
+  char lower, upper; // for ranges. both bounds inclusive
   struct regex *lhs, *rhs;
 };
 
-#define REGEX_EPS ((struct regex){TYPE_REPEAT, .lower = 0, .upper = 0})
-#define REGEX_ISEPS(REGEX)                                                     \
-  (REGEX->type == TYPE_REPEAT && REGEX->lower == 0 && REGEX->upper == 0)
 #define REGEX_EMPTY ((struct regex){TYPE_NRANGE, CHAR_MIN, CHAR_MAX})
-#define REGEX_ISEMPTY(REGEX)                                                   \
-  (REGEX->type == TYPE_NRANGE && REGEX->lower == CHAR_MIN &&                   \
-   REGEX->upper == CHAR_MAX)
+#define REGEX_UNIV ((struct regex){TYPE_COMPL, .lhs = &REGEX_EMPTY})
+#define REGEX_EPS ((struct regex){TYPE_STAR, .lhs = &REGEX_EMPTY})
+
+#define REGEX_ISEMPTY(RE)                                                      \
+  (RE->type == TYPE_NRANGE && RE->lower == CHAR_MIN && RE->upper == CHAR_MAX)
+#define REGEX_ISUNIV(RE) (RE->type == TYPE_COMPL && REGEX_ISEMPTY(RE->lhs))
+#define REGEX_ISEPS(RE) (RE->type == TYPE_STAR && REGEX_ISEMPTY(RE->lhs))
 
 struct regex *regex_alloc(struct regex fields) {
   struct regex *regex = malloc(sizeof *regex);
@@ -52,10 +54,14 @@ void regex_free(struct regex *regex) {
 static void regex_simplify(struct regex **regex) {
   switch ((*regex)->type) {
   case TYPE_ALT:
+    if (REGEX_ISUNIV((*regex)->lhs))
+      goto hoist_lhs; // !~.|r |- !~.
+    if (REGEX_ISUNIV((*regex)->rhs))
+      goto hoist_rhs; // r|!~. |- !~.
     if (REGEX_ISEMPTY((*regex)->lhs))
-      goto hoist_rhs; // []|r |- r
+      goto hoist_rhs; // ~.|r |- r
     if (REGEX_ISEMPTY((*regex)->rhs))
-      goto hoist_lhs; // r|[] |- r
+      goto hoist_lhs; // r|~. |- r
     break;
   case TYPE_COMPL:
     if ((*regex)->lhs->type == TYPE_COMPL)
@@ -63,17 +69,17 @@ static void regex_simplify(struct regex **regex) {
     break;
   case TYPE_CONCAT:
     if (REGEX_ISEMPTY((*regex)->lhs))
-      goto hoist_lhs; // []r |- []
+      goto hoist_lhs; // ~.r |- ~.
     if (REGEX_ISEMPTY((*regex)->rhs))
-      goto hoist_rhs; // r[] |- []
+      goto hoist_rhs; // r~. |- ~.
     if (REGEX_ISEPS((*regex)->lhs))
-      goto hoist_rhs; // ()r |- r
+      goto hoist_rhs; // ~.*r |- r
     if (REGEX_ISEPS((*regex)->rhs))
-      goto hoist_lhs; // r() |- r
+      goto hoist_lhs; // r~.* |- r
     break;
-  case TYPE_REPEAT:
-    if ((*regex)->lower == 1 && (*regex)->upper == 1)
-      goto hoist_lhs; // r{1} |- r
+  case TYPE_STAR:
+    if ((*regex)->lhs->type == TYPE_STAR)
+      goto hoist_lhs; // r** |- r*
   default:
     break;
   }
@@ -111,8 +117,7 @@ static char *parse_symbol(char **pattern) {
 static struct regex *parse_regex(char **pattern);
 static struct regex *parse_atom(char **pattern) {
   if (**pattern == '%' && ++*pattern)
-    return regex_alloc(TYPE_REPEAT, .lower = 0, .upper = CHAR_MAX,
-                       .lhs = regex_alloc(TYPE_RANGE, CHAR_MIN, CHAR_MAX));
+    return regex_clone(REGEX_UNIV);
 
   if (**pattern == '(' && ++*pattern) {
     struct regex *sub = parse_regex(pattern);
@@ -148,18 +153,22 @@ static struct regex *parse_factor(char **pattern) {
   if (atom == NULL)
     return NULL;
 
-  char *quants = "*+?", *quant = strchr(quants, **pattern);
-  if (**pattern && quant && ++*pattern)
-    atom = regex_alloc(TYPE_REPEAT, .lower = (char[]){0, 1, 0}[quant - quants],
-                       .upper = (char[]){CHAR_MAX, CHAR_MAX, 1}[quant - quants],
-                       .lhs = atom);
+  if (**pattern == '*' && ++*pattern)
+    atom = regex_alloc(TYPE_STAR, .lhs = atom);
+  if (**pattern == '+' && ++*pattern)
+    atom = regex_alloc(TYPE_CONCAT, .lhs = regex_clone(*atom),
+                       .rhs = regex_alloc(TYPE_STAR, .lhs = atom));
+  if (**pattern == '?' && ++*pattern)
+    atom = regex_alloc(TYPE_ALT, .lhs = regex_clone(REGEX_EPS), .rhs = atom);
+
+  regex_simplify(&atom);
   return atom;
 }
 
 static struct regex *parse_term(char **pattern) {
   // hacky lookahead for better diagnostics
   if (strchr(")|&", **pattern))
-    return regex_alloc(TYPE_REPEAT, .lower = 0, .upper = 0);
+    return regex_clone(REGEX_EPS);
 
   struct regex *factor = parse_factor(pattern);
   if (factor == NULL)
@@ -219,12 +228,12 @@ bool nure_nullable(struct regex *regex) {
   switch (regex->type) {
   case TYPE_ALT:
     return nure_nullable(regex->lhs) || nure_nullable(regex->rhs);
-  case TYPE_CONCAT:
-    return nure_nullable(regex->lhs) && nure_nullable(regex->rhs);
   case TYPE_COMPL:
     return !nure_nullable(regex->lhs);
-  case TYPE_REPEAT:
-    return regex->lower == 0 || nure_nullable(regex->lhs);
+  case TYPE_CONCAT:
+    return nure_nullable(regex->lhs) && nure_nullable(regex->rhs);
+  case TYPE_STAR:
+    return true;
   case TYPE_RANGE:
   case TYPE_NRANGE:
     return false;
@@ -256,26 +265,17 @@ void nure_differentiate(struct regex **regex, char chr) {
     }
     regex_simplify(regex);
     break;
-  case TYPE_REPEAT:
-    if ((*regex)->upper == 0)
-      **regex = REGEX_EMPTY;
-    else {
-      (*regex)->lower -= (*regex)->lower != 0;
-      (*regex)->upper -= (*regex)->upper != CHAR_MAX;
-      if ((*regex)->upper == 0)
-        (*regex)->upper = (*regex)->lower = 1;
-      else
-        *regex = regex_alloc(TYPE_CONCAT, .lhs = regex_clone(*(*regex)->lhs),
-                             .rhs = *regex);
-      nure_differentiate(&(*regex)->lhs, chr);
-      regex_simplify(regex);
-    }
+  case TYPE_STAR:
+    *regex = regex_alloc(TYPE_CONCAT, .lhs = regex_clone(*(*regex)->lhs),
+                         .rhs = *regex);
+    nure_differentiate(&(*regex)->lhs, chr);
+    regex_simplify(regex);
     break;
   case TYPE_RANGE:
   case TYPE_NRANGE:;
     bool compl = (*regex)->type == TYPE_NRANGE;
     if (((*regex)->lower <= chr && chr <= (*regex)->upper) ^ compl )
-      **regex = REGEX_EPS;
+      **regex = (struct regex){TYPE_STAR, .lhs = regex_clone(REGEX_EMPTY)};
     else
       **regex = REGEX_EMPTY;
   }

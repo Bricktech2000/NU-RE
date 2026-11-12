@@ -11,5 +11,5 @@ Alternation and intersection are right-associative. Prefixing a character or cha
 Run the test suite with:
 
 ```sh
-make bin/test && bin/test
+make test && ./test
 ```
